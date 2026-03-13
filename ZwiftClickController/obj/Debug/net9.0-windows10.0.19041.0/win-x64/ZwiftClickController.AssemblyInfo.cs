@@ -13,7 +13,7 @@ using System.Reflection;
 [assembly: System.Reflection.AssemblyCompanyAttribute("ZwiftClickController")]
 [assembly: System.Reflection.AssemblyConfigurationAttribute("Debug")]
 [assembly: System.Reflection.AssemblyFileVersionAttribute("1.0.0.0")]
-[assembly: System.Reflection.AssemblyInformationalVersionAttribute("1.0.0+2926e8eb5f72c5615b53000b7e7f656ef9e585f4")]
+[assembly: System.Reflection.AssemblyInformationalVersionAttribute("1.0.0+e8b132803e49e062071e8803a83751d0c84d2138")]
 [assembly: System.Reflection.AssemblyProductAttribute("ZwiftClickController")]
 [assembly: System.Reflection.AssemblyTitleAttribute("ZwiftClickController")]
 [assembly: System.Reflection.AssemblyVersionAttribute("1.0.0.0")]

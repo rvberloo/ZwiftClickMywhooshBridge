@@ -1,8 +1,8 @@
 {
   "version": 2,
-  "dgSpecHash": "dSoQ8w1NhGM=",
+  "dgSpecHash": "VQxTBjys8uU=",
   "success": true,
-  "projectFilePath": "C:\\Users\\Ralph\\zwiftclick\\zwiftclickcontroller\\ZwiftClickController.csproj",
+  "projectFilePath": "C:\\Users\\Ralph\\zwiftclick\\ZwiftClickController\\ZwiftClickController.csproj",
   "expectedPackageFiles": [
     "C:\\Users\\Ralph\\.nuget\\packages\\inputsimulator\\1.0.4\\inputsimulator.1.0.4.nupkg.sha512",
     "C:\\Users\\Ralph\\.nuget\\packages\\microsoft.windows.sdk.net.ref\\10.0.19041.57\\microsoft.windows.sdk.net.ref.10.0.19041.57.nupkg.sha512"
@@ -12,9 +12,9 @@
       "code": "NU1701",
       "level": "Warning",
       "message": "Package 'InputSimulator 1.0.4' was restored using '.NETFramework,Version=v4.6.1, .NETFramework,Version=v4.6.2, .NETFramework,Version=v4.7, .NETFramework,Version=v4.7.1, .NETFramework,Version=v4.7.2, .NETFramework,Version=v4.8, .NETFramework,Version=v4.8.1' instead of the project target framework 'net9.0-windows10.0.19041'. This package may not be fully compatible with your project.",
-      "projectPath": "C:\\Users\\Ralph\\zwiftclick\\zwiftclickcontroller\\ZwiftClickController.csproj",
+      "projectPath": "C:\\Users\\Ralph\\zwiftclick\\ZwiftClickController\\ZwiftClickController.csproj",
       "warningLevel": 1,
-      "filePath": "C:\\Users\\Ralph\\zwiftclick\\zwiftclickcontroller\\ZwiftClickController.csproj",
+      "filePath": "C:\\Users\\Ralph\\zwiftclick\\ZwiftClickController\\ZwiftClickController.csproj",
       "libraryId": "InputSimulator",
       "targetGraphs": [
         "net9.0-windows10.0.19041"

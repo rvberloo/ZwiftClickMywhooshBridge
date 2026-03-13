@@ -38,6 +38,15 @@ public static class InputActionExecutor
             case ButtonAction.SpotifyPreviousTrack:
                 Sim.Keyboard.KeyPress(VirtualKeyCode.MEDIA_PREV_TRACK);
                 return;
+            case ButtonAction.SpotifyPlayPauseShortcut:
+                Sim.Keyboard.KeyPress(VirtualKeyCode.SPACE);
+                return;
+            case ButtonAction.SpotifyNextTrackShortcut:
+                Sim.Keyboard.ModifiedKeyStroke(VirtualKeyCode.CONTROL, VirtualKeyCode.RIGHT);
+                return;
+            case ButtonAction.SpotifyPreviousTrackShortcut:
+                Sim.Keyboard.ModifiedKeyStroke(VirtualKeyCode.CONTROL, VirtualKeyCode.LEFT);
+                return;
             case ButtonAction.SpotifyVolumeUp:
                 Sim.Keyboard.KeyPress(VirtualKeyCode.VOLUME_UP);
                 return;

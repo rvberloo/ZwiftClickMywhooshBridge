@@ -13,6 +13,9 @@ public enum ButtonAction
     SpotifyPlayPause,
     SpotifyNextTrack,
     SpotifyPreviousTrack,
+    SpotifyPlayPauseShortcut,
+    SpotifyNextTrackShortcut,
+    SpotifyPreviousTrackShortcut,
     SpotifyVolumeUp,
     SpotifyVolumeDown
 }

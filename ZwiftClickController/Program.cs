@@ -20,9 +20,9 @@ class Program
 
     private static readonly ControllerMapping Controller2Mapping = new(
         "Controller2",
-        ButtonAction.KeyK,
-        ButtonAction.KeyI,
-        ButtonAction.KeyLeftArrow,
+        ButtonAction.SpotifyPreviousTrackShortcut,
+        ButtonAction.SpotifyNextTrackShortcut,
+        ButtonAction.SpotifyPlayPauseShortcut,
         ButtonAction.KeyRightArrow);
 
     static async Task Main()

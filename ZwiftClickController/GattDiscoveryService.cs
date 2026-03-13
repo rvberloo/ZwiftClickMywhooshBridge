@@ -34,7 +34,7 @@ public sealed class GattDiscoveryService
                 var access = await device.RequestAccessAsync();
                 if (access != DeviceAccessStatus.Allowed)
                 {
-                    Console.WriteLine($"Toegang geweigerd voor {candidate.Name}: {access}");
+                    Console.WriteLine($"Access denied for {candidate.Name}: {access}");
                     device.Dispose();
                     await Task.Delay(300 * attempt);
                     continue;
@@ -58,7 +58,7 @@ public sealed class GattDiscoveryService
             mode => device.GetGattServicesForUuidAsync(ServiceUuid, mode),
             result => result.Status,
             result => result.Services.Count,
-            $"{device.Name}: bekende service ophalen");
+            $"{device.Name}: retrieving known service");
 
         if (knownServiceResult != null && knownServiceResult.Status == GattCommunicationStatus.Success && knownServiceResult.Services.Count > 0)
         {
@@ -67,7 +67,7 @@ public sealed class GattDiscoveryService
                 mode => knownService.GetCharacteristicsAsync(mode),
                 result => result.Status,
                 result => result.Characteristics.Count,
-                $"{device.Name}: bekende characteristics ophalen");
+                $"{device.Name}: retrieving known characteristics");
 
             if (chars != null && chars.Status == GattCommunicationStatus.Success)
             {
@@ -75,7 +75,7 @@ public sealed class GattDiscoveryService
                 var knownNotify = chars.Characteristics.FirstOrDefault(c => c.Uuid == NotifyUuid);
                 if (knownControl != null && knownNotify != null)
                 {
-                    Console.WriteLine("Bekende Zwift UUIDs gevonden.");
+                    Console.WriteLine("Known Zwift UUIDs found.");
                     return (knownControl, knownNotify);
                 }
             }
@@ -85,24 +85,24 @@ public sealed class GattDiscoveryService
             mode => device.GetGattServicesAsync(mode),
             result => result.Status,
             result => result.Services.Count,
-            $"{device.Name}: alle services ophalen");
+            $"{device.Name}: retrieving all services");
 
         if (allServices == null || allServices.Status != GattCommunicationStatus.Success)
         {
             var status = allServices?.Status.ToString() ?? "Unknown";
-            Console.WriteLine($"Services ophalen mislukt: {status}");
-            Console.WriteLine("Controleer of de controller wakker is en niet al door Zwift/MyWhoosh/Companion is verbonden.");
+            Console.WriteLine($"Failed to retrieve services: {status}");
+            Console.WriteLine("Check that the controller is awake and not already connected by Zwift/MyWhoosh/Companion.");
             return (null, null);
         }
 
-        Console.WriteLine("Bekende UUID niet gevonden, probeer auto-detect.");
+        Console.WriteLine("Known UUID not found, trying auto-detect.");
         foreach (var service in allServices.Services)
         {
             var charsResult = await QueryWithRetryAsync(
                 mode => service.GetCharacteristicsAsync(mode),
                 result => result.Status,
                 result => result.Characteristics.Count,
-                $"{device.Name}: characteristics voor service {service.Uuid} ophalen");
+                $"{device.Name}: retrieving characteristics for service {service.Uuid}");
 
             if (charsResult == null || charsResult.Status != GattCommunicationStatus.Success)
             {
@@ -155,7 +155,7 @@ public sealed class GattDiscoveryService
                     }
                     else if (attempt == 3)
                     {
-                        Console.WriteLine($"{description} mislukt via {cacheMode}: {getStatus(result)}");
+                        Console.WriteLine($"{description} failed via {cacheMode}: {getStatus(result)}");
                     }
                 }
                 catch (Exception ex)

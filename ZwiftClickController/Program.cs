@@ -30,11 +30,11 @@ class Program
         try
         {
             Console.WriteLine("=== Zwift Click C# Controller ===");
-            Console.WriteLine("Zoeken naar BLE apparaten...");
+            Console.WriteLine("Scanning for BLE devices...");
             PrintMappings();
 
             var scanCandidates = await Discovery.ScanBleDevicesAsync(TimeSpan.FromSeconds(8));
-            Console.WriteLine($"Methode 1 (scan): {scanCandidates.Count} kandidaten");
+            Console.WriteLine($"Method 1 (scan): {scanCandidates.Count} candidates");
             foreach (var c in scanCandidates)
             {
                 if (c.Name.Contains("click", StringComparison.OrdinalIgnoreCase))
@@ -44,14 +44,14 @@ class Program
             }
 
             var registryCandidates = Discovery.GetPairedBluetoothDevicesFromRegistry();
-            Console.WriteLine($"Methode 2 (registry): {registryCandidates.Count} kandidaten");
+            Console.WriteLine($"Method 2 (registry): {registryCandidates.Count} candidates");
             foreach (var c in registryCandidates)
             {
                 Console.WriteLine($"  - {c.Name} [{BleDiscoveryService.FormatAddress(c.Address)}] ({c.Source})");
             }
 
             var deviceInfoCandidates = await Discovery.GetWindowsBleDevicesAsync();
-            Console.WriteLine($"Methode 3 (windows devices): {deviceInfoCandidates.Count} kandidaten");
+            Console.WriteLine($"Method 3 (windows devices): {deviceInfoCandidates.Count} candidates");
             foreach (var c in deviceInfoCandidates)
             {
                 Console.WriteLine($"  - {c.Name} [{BleDiscoveryService.FormatAddress(c.Address)}] ({c.Source})");
@@ -60,8 +60,8 @@ class Program
             var merged = Discovery.MergeCandidates(scanCandidates, deviceInfoCandidates, registryCandidates);
             if (merged.Count == 0)
             {
-                Console.WriteLine("Geen BLE kandidaten gevonden.");
-                Console.WriteLine("Controleer of de controller in pairing mode staat en dicht bij de pc is.");
+                Console.WriteLine("No BLE candidates found.");
+                Console.WriteLine("Make sure the controller is in pairing mode and close to this PC.");
                 return;
             }
 
@@ -73,21 +73,21 @@ class Program
 
             if (prioritized.Count == 0)
             {
-                Console.WriteLine("Geen Zwift Click controllers gevonden.");
+                Console.WriteLine("No Zwift Click controllers found.");
                 return;
             }
 
             var mappings = new[] { Controller1Mapping, Controller2Mapping };
             foreach (var candidate in prioritized.Take(mappings.Length))
             {
-                Console.WriteLine($"Probeer verbinden: {candidate.Name} [{BleDiscoveryService.FormatAddress(candidate.Address)}]");
+                Console.WriteLine($"Trying to connect: {candidate.Name} [{BleDiscoveryService.FormatAddress(candidate.Address)}]");
                 var device = await Gatt.TryConnectAsync(candidate);
                 if (device == null)
                 {
                     continue;
                 }
 
-                Console.WriteLine($"Verbonden met: {device.Name} [{BleDiscoveryService.FormatAddress(candidate.Address)}]");
+                Console.WriteLine($"Connected to: {device.Name} [{BleDiscoveryService.FormatAddress(candidate.Address)}]");
 
                 var selectedChars = await Gatt.FindCharacteristicsAsync(device);
                 if (selectedChars.control != null && selectedChars.notify != null)
@@ -114,7 +114,7 @@ class Program
 
                     if (notifyStatus != GattCommunicationStatus.Success)
                     {
-                        Console.WriteLine($"Notifications inschakelen mislukt voor {connection.Label}: {notifyStatus}");
+                        Console.WriteLine($"Failed to enable notifications for {connection.Label}: {notifyStatus}");
                         device.Dispose();
                         continue;
                     }
@@ -122,21 +122,21 @@ class Program
                     connection.NotifyChar.ValueChanged += (_, args) => OnButtonChanged(connection, args);
                     Connections.Add(connection);
                     await SendRideOn(connection);
-                    Console.WriteLine($"{connection.Label} actief op [{BleDiscoveryService.FormatAddress(candidate.Address)}]");
+                    Console.WriteLine($"{connection.Label} active on [{BleDiscoveryService.FormatAddress(candidate.Address)}]");
                     continue;
                 }
 
-                Console.WriteLine("Geen bruikbare write/notify characteristics gevonden op dit apparaat.");
+                Console.WriteLine("No usable write/notify characteristics found on this device.");
                 device.Dispose();
             }
 
             if (Connections.Count == 0)
             {
-                Console.WriteLine("Kon niet verbinden met een Zwift Click controller.");
+                Console.WriteLine("Could not connect to any Zwift Click controller.");
                 return;
             }
 
-            Console.WriteLine($"{Connections.Count} controller(s) actief.");
+            Console.WriteLine($"{Connections.Count} controller(s) active.");
 
             _ = Task.Run(async () =>
             {
@@ -150,12 +150,12 @@ class Program
                 }
             });
 
-            Console.WriteLine("Luisteren naar knoppen. Druk Enter om te stoppen.");
+            Console.WriteLine("Listening for button presses. Press Enter to stop.");
             Console.ReadLine();
         }
         catch (Exception ex)
         {
-            Console.WriteLine($"Onverwachte fout: {ex}");
+            Console.WriteLine($"Unexpected error: {ex}");
         }
     }
 
@@ -169,7 +169,7 @@ class Program
         }
         catch (Exception ex)
         {
-            Console.WriteLine($"SendRideOn fout voor {connection.Label}: {ex.Message}");
+            Console.WriteLine($"SendRideOn error for {connection.Label}: {ex.Message}");
         }
     }
 
@@ -200,7 +200,7 @@ class Program
 
             if (messageType != ClickProtocolParser.ClickNotificationMessageType)
             {
-                Console.WriteLine($"{connection.Label}: onbekend bericht type=0x{messageType:X2}");
+                Console.WriteLine($"{connection.Label}: unknown message type=0x{messageType:X2}");
                 return;
             }
 
@@ -241,7 +241,7 @@ class Program
         }
         catch (Exception ex)
         {
-            Console.WriteLine($"Knop verwerking fout: {ex.Message}");
+            Console.WriteLine($"Button processing error: {ex.Message}");
         }
     }
 
@@ -264,19 +264,19 @@ class Program
         if (connection.RideMinusMask == 0)
         {
             connection.RideMinusMask = firstChangedBit;
-            Console.WriteLine($"{connection.Label}: 0x23 map ingesteld -> Minus bit 0x{connection.RideMinusMask:X}");
+            Console.WriteLine($"{connection.Label}: 0x23 mapping set -> Minus bit 0x{connection.RideMinusMask:X}");
         }
         else if (connection.RidePlusMask == 0 && firstChangedBit != connection.RideMinusMask)
         {
             connection.RidePlusMask = firstChangedBit;
-            Console.WriteLine($"{connection.Label}: 0x23 map ingesteld -> Plus bit 0x{connection.RidePlusMask:X}");
+            Console.WriteLine($"{connection.Label}: 0x23 mapping set -> Plus bit 0x{connection.RidePlusMask:X}");
         }
         else if (connection.RideLeftMask == 0 &&
                  firstChangedBit != connection.RideMinusMask &&
                  firstChangedBit != connection.RidePlusMask)
         {
             connection.RideLeftMask = firstChangedBit;
-            Console.WriteLine($"{connection.Label}: 0x23 map ingesteld -> Left bit 0x{connection.RideLeftMask:X}");
+            Console.WriteLine($"{connection.Label}: 0x23 mapping set -> Left bit 0x{connection.RideLeftMask:X}");
         }
         else if (connection.RideRightMask == 0 &&
                  firstChangedBit != connection.RideMinusMask &&
@@ -284,7 +284,7 @@ class Program
                  firstChangedBit != connection.RideLeftMask)
         {
             connection.RideRightMask = firstChangedBit;
-            Console.WriteLine($"{connection.Label}: 0x23 map ingesteld -> Right bit 0x{connection.RideRightMask:X}");
+            Console.WriteLine($"{connection.Label}: 0x23 mapping set -> Right bit 0x{connection.RideRightMask:X}");
         }
 
         if (connection.RideMinusMask != 0 && (newPressed & connection.RideMinusMask) != 0)

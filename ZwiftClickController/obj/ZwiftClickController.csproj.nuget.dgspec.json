@@ -1,17 +1,17 @@
 {
   "format": 1,
   "restore": {
-    "C:\\Users\\Ralph\\zwiftclick\\ZwiftClickController\\ZwiftClickController.csproj": {}
+    "C:\\Users\\Ralph\\zwiftclick\\zwiftclickcontroller\\ZwiftClickController.csproj": {}
   },
   "projects": {
-    "C:\\Users\\Ralph\\zwiftclick\\ZwiftClickController\\ZwiftClickController.csproj": {
+    "C:\\Users\\Ralph\\zwiftclick\\zwiftclickcontroller\\ZwiftClickController.csproj": {
       "version": "1.0.0",
       "restore": {
-        "projectUniqueName": "C:\\Users\\Ralph\\zwiftclick\\ZwiftClickController\\ZwiftClickController.csproj",
+        "projectUniqueName": "C:\\Users\\Ralph\\zwiftclick\\zwiftclickcontroller\\ZwiftClickController.csproj",
         "projectName": "ZwiftClickController",
-        "projectPath": "C:\\Users\\Ralph\\zwiftclick\\ZwiftClickController\\ZwiftClickController.csproj",
+        "projectPath": "C:\\Users\\Ralph\\zwiftclick\\zwiftclickcontroller\\ZwiftClickController.csproj",
         "packagesPath": "C:\\Users\\Ralph\\.nuget\\packages\\",
-        "outputPath": "C:\\Users\\Ralph\\zwiftclick\\ZwiftClickController\\obj\\",
+        "outputPath": "C:\\Users\\Ralph\\zwiftclick\\zwiftclickcontroller\\obj\\",
         "projectStyle": "PackageReference",
         "configFilePaths": [
           "C:\\Users\\Ralph\\AppData\\Roaming\\NuGet\\NuGet.Config"

@@ -2,7 +2,9 @@
 using System.Text;
 using Windows.Devices.Bluetooth;
 using Windows.Devices.Bluetooth.Advertisement;
+using Windows.Devices.Enumeration;
 using Windows.Devices.Bluetooth.GenericAttributeProfile;
+using Windows.Foundation;
 using Windows.Storage.Streams;
 using WindowsInput;
 using WindowsInput.Native;
@@ -102,10 +104,18 @@ class Program
                 Console.WriteLine($"  - {c.Name} [{FormatAddress(c.Address)}] ({c.Source})");
             }
 
+            var deviceInfoCandidates = await GetWindowsBleDevicesAsync();
+            Console.WriteLine($"Methode 3 (windows devices): {deviceInfoCandidates.Count} kandidaten");
+            foreach (var c in deviceInfoCandidates)
+            {
+                Console.WriteLine($"  - {c.Name} [{FormatAddress(c.Address)}] ({c.Source})");
+            }
+
             var merged = scanCandidates
+                .Concat(deviceInfoCandidates)
                 .Concat(registryCandidates)
                 .GroupBy(c => c.Address)
-                .Select(g => g.First())
+                .Select(MergeCandidateGroup)
                 .ToList();
 
             if (merged.Count == 0)
@@ -131,7 +141,7 @@ class Program
             foreach (var candidate in prioritized.Take(mappings.Length))
             {
                 Console.WriteLine($"Probeer verbinden: {candidate.Name} [{FormatAddress(candidate.Address)}]");
-                var device = await TryConnectAsync(candidate.Address);
+                var device = await TryConnectAsync(candidate);
                 if (device == null)
                 {
                     continue;
@@ -209,16 +219,47 @@ class Program
         }
     }
 
-    private static async Task<BluetoothLEDevice?> TryConnectAsync(ulong address)
+    private static async Task<BluetoothLEDevice?> TryConnectAsync(BleCandidate candidate)
     {
-        try
+        for (var attempt = 1; attempt <= 3; attempt++)
         {
-            return await BluetoothLEDevice.FromBluetoothAddressAsync(address);
+            try
+            {
+                BluetoothLEDevice? device;
+                if (!string.IsNullOrWhiteSpace(candidate.DeviceId))
+                {
+                    device = await BluetoothLEDevice.FromIdAsync(candidate.DeviceId);
+                }
+                else
+                {
+                    device = await BluetoothLEDevice.FromBluetoothAddressAsync(candidate.Address);
+                }
+
+                if (device == null)
+                {
+                    await Task.Delay(300 * attempt);
+                    continue;
+                }
+
+                var access = await device.RequestAccessAsync();
+                if (access != DeviceAccessStatus.Allowed)
+                {
+                    Console.WriteLine($"Toegang geweigerd voor {candidate.Name}: {access}");
+                    device.Dispose();
+                    await Task.Delay(300 * attempt);
+                    continue;
+                }
+
+                await Task.Delay(500);
+                return device;
+            }
+            catch
+            {
+                await Task.Delay(300 * attempt);
+            }
         }
-        catch
-        {
-            return null;
-        }
+
+        return null;
     }
 
     private static async Task<List<BleCandidate>> ScanBleDevicesAsync(TimeSpan duration)
@@ -250,15 +291,73 @@ class Program
             .ToList();
     }
 
+    private static async Task<List<BleCandidate>> GetWindowsBleDevicesAsync()
+    {
+        var requestedProperties = new[]
+        {
+            "System.Devices.Aep.DeviceAddress",
+            "System.Devices.Aep.IsConnected"
+        };
+
+        var selectors = new[]
+        {
+            BluetoothLEDevice.GetDeviceSelector(),
+            BluetoothLEDevice.GetDeviceSelectorFromPairingState(true)
+        };
+
+        var results = new List<BleCandidate>();
+        foreach (var selector in selectors)
+        {
+            DeviceInformationCollection devices;
+            try
+            {
+                devices = await DeviceInformation.FindAllAsync(selector, requestedProperties);
+            }
+            catch
+            {
+                continue;
+            }
+
+            foreach (var device in devices)
+            {
+                if (!TryParseDeviceAddress(device.Properties.TryGetValue("System.Devices.Aep.DeviceAddress", out var rawAddress) ? rawAddress : null, out var address))
+                {
+                    continue;
+                }
+
+                var name = string.IsNullOrWhiteSpace(device.Name) ? "Unknown" : device.Name;
+                results.Add(new BleCandidate(address, name, "windows", device.Id));
+            }
+        }
+
+        return results
+            .Where(c => c.Name.Contains("click", StringComparison.OrdinalIgnoreCase))
+            .GroupBy(c => c.Address)
+            .Select(MergeCandidateGroup)
+            .OrderBy(c => c.Name, StringComparer.OrdinalIgnoreCase)
+            .ThenBy(c => c.Address)
+            .ToList();
+    }
+
     private static async Task<(GattCharacteristic? control, GattCharacteristic? notify)> FindCharacteristicsAsync(BluetoothLEDevice device)
     {
         // First try known Zwift UUIDs.
-        var knownServiceResult = await device.GetGattServicesForUuidAsync(ServiceUuid, BluetoothCacheMode.Uncached);
-        if (knownServiceResult.Status == GattCommunicationStatus.Success && knownServiceResult.Services.Count > 0)
+        var knownServiceResult = await QueryWithRetryAsync(
+            mode => device.GetGattServicesForUuidAsync(ServiceUuid, mode),
+            result => result.Status,
+            result => result.Services.Count,
+            $"{device.Name}: bekende service ophalen");
+
+        if (knownServiceResult != null && knownServiceResult.Status == GattCommunicationStatus.Success && knownServiceResult.Services.Count > 0)
         {
             var knownService = knownServiceResult.Services[0];
-            var chars = await knownService.GetCharacteristicsAsync(BluetoothCacheMode.Uncached);
-            if (chars.Status == GattCommunicationStatus.Success)
+            var chars = await QueryWithRetryAsync(
+                mode => knownService.GetCharacteristicsAsync(mode),
+                result => result.Status,
+                result => result.Characteristics.Count,
+                $"{device.Name}: bekende characteristics ophalen");
+
+            if (chars != null && chars.Status == GattCommunicationStatus.Success)
             {
                 var knownControl = chars.Characteristics.FirstOrDefault(c => c.Uuid == ControlUuid);
                 var knownNotify = chars.Characteristics.FirstOrDefault(c => c.Uuid == NotifyUuid);
@@ -271,18 +370,30 @@ class Program
         }
 
         // Fallback: detect a service that exposes one write and one notify characteristic.
-        var allServices = await device.GetGattServicesAsync(BluetoothCacheMode.Uncached);
-        if (allServices.Status != GattCommunicationStatus.Success)
+        var allServices = await QueryWithRetryAsync(
+            mode => device.GetGattServicesAsync(mode),
+            result => result.Status,
+            result => result.Services.Count,
+            $"{device.Name}: alle services ophalen");
+
+        if (allServices == null || allServices.Status != GattCommunicationStatus.Success)
         {
-            Console.WriteLine($"Services ophalen mislukt: {allServices.Status}");
+            var status = allServices?.Status.ToString() ?? "Unknown";
+            Console.WriteLine($"Services ophalen mislukt: {status}");
+            Console.WriteLine("Controleer of de controller wakker is en niet al door Zwift/MyWhoosh/Companion is verbonden.");
             return (null, null);
         }
 
         Console.WriteLine("Bekende UUID niet gevonden, probeer auto-detect.");
         foreach (var service in allServices.Services)
         {
-            var charsResult = await service.GetCharacteristicsAsync(BluetoothCacheMode.Uncached);
-            if (charsResult.Status != GattCommunicationStatus.Success)
+            var charsResult = await QueryWithRetryAsync(
+                mode => service.GetCharacteristicsAsync(mode),
+                result => result.Status,
+                result => result.Characteristics.Count,
+                $"{device.Name}: characteristics voor service {service.Uuid} ophalen");
+
+            if (charsResult == null || charsResult.Status != GattCommunicationStatus.Success)
             {
                 continue;
             }
@@ -304,6 +415,51 @@ class Program
         }
 
         return (null, null);
+    }
+
+    private static async Task<T?> QueryWithRetryAsync<T>(
+        Func<BluetoothCacheMode, IAsyncOperation<T>> operation,
+        Func<T, GattCommunicationStatus> getStatus,
+        Func<T, int> getCount,
+        string description)
+        where T : class
+    {
+        T? lastResult = null;
+
+        foreach (var cacheMode in new[] { BluetoothCacheMode.Cached, BluetoothCacheMode.Uncached })
+        {
+            for (var attempt = 1; attempt <= 3; attempt++)
+            {
+                try
+                {
+                    var result = await operation(cacheMode);
+                    lastResult = result;
+
+                    if (getStatus(result) == GattCommunicationStatus.Success)
+                    {
+                        if (getCount(result) > 0 || cacheMode == BluetoothCacheMode.Uncached)
+                        {
+                            return result;
+                        }
+                    }
+                    else if (attempt == 3)
+                    {
+                        Console.WriteLine($"{description} mislukt via {cacheMode}: {getStatus(result)}");
+                    }
+                }
+                catch (Exception ex)
+                {
+                    if (attempt == 3)
+                    {
+                        Console.WriteLine($"{description} exception via {cacheMode}: {ex.Message}");
+                    }
+                }
+
+                await Task.Delay(350 * attempt);
+            }
+        }
+
+        return lastResult;
     }
 
     private static List<BleCandidate> GetPairedBluetoothDevicesFromRegistry()
@@ -364,6 +520,60 @@ class Program
     private static bool TryParseRegistryAddress(string keyName, out ulong address)
     {
         return ulong.TryParse(keyName, NumberStyles.HexNumber, CultureInfo.InvariantCulture, out address);
+    }
+
+    private static bool TryParseDeviceAddress(object? raw, out ulong address)
+    {
+        if (raw is string text)
+        {
+            var cleaned = text.Replace(":", string.Empty).Replace("-", string.Empty);
+            return ulong.TryParse(cleaned, NumberStyles.HexNumber, CultureInfo.InvariantCulture, out address);
+        }
+
+        address = 0;
+        return false;
+    }
+
+    private static BleCandidate MergeCandidateGroup(IEnumerable<BleCandidate> group)
+    {
+        var candidates = group.ToList();
+        var best = candidates
+            .OrderByDescending(GetCandidatePriority)
+            .First();
+
+        var preferredName = candidates
+            .Select(c => c.Name)
+            .FirstOrDefault(name => !string.IsNullOrWhiteSpace(name) && !string.Equals(name, "Unknown", StringComparison.OrdinalIgnoreCase))
+            ?? best.Name;
+
+        var deviceId = candidates
+            .Select(c => c.DeviceId)
+            .FirstOrDefault(id => !string.IsNullOrWhiteSpace(id));
+
+        return best with { Name = preferredName, DeviceId = deviceId };
+    }
+
+    private static int GetCandidatePriority(BleCandidate candidate)
+    {
+        var sourcePriority = candidate.Source switch
+        {
+            "windows" => 30,
+            "scan" => 20,
+            "registry" => 10,
+            _ => 0
+        };
+
+        if (!string.IsNullOrWhiteSpace(candidate.DeviceId))
+        {
+            sourcePriority += 100;
+        }
+
+        if (!string.Equals(candidate.Name, "Unknown", StringComparison.OrdinalIgnoreCase))
+        {
+            sourcePriority += 5;
+        }
+
+        return sourcePriority;
     }
 
     private static string FormatAddress(ulong address)
@@ -646,5 +856,5 @@ class Program
         }
     }
 
-    private sealed record BleCandidate(ulong Address, string Name, string Source);
+    private sealed record BleCandidate(ulong Address, string Name, string Source, string? DeviceId = null);
 }

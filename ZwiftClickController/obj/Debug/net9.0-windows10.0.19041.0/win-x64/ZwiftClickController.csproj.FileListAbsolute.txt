@@ -16,4 +16,5 @@ C:\Users\Ralph\zwiftclick\ZwiftClickController\obj\Debug\net9.0-windows10.0.1904
 C:\Users\Ralph\zwiftclick\ZwiftClickController\obj\Debug\net9.0-windows10.0.19041.0\win-x64\ZwiftClickController.pdb
 C:\Users\Ralph\zwiftclick\ZwiftClickController\obj\Debug\net9.0-windows10.0.19041.0\win-x64\ZwiftClickController.genruntimeconfig.cache
 C:\Users\Ralph\zwiftclick\ZwiftClickController\obj\Debug\net9.0-windows10.0.19041.0\win-x64\ref\ZwiftClickController.dll
+C:\Users\Ralph\zwiftclick\zwiftclickcontroller\obj\Debug\net9.0-windows10.0.19041.0\win-x64\ZwiftClickController.sourcelink.json
 C:\Users\Ralph\zwiftclick\zwiftclickcontroller\bin\Debug\net9.0-windows10.0.19041.0\win-x64\ZwiftClickController.exe

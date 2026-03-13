@@ -19,8 +19,8 @@ public enum ButtonAction
 
 public sealed record ControllerMapping(
     string Label,
-    ButtonAction Down,
-    ButtonAction Up,
+    ButtonAction Minus,
+    ButtonAction Plus,
     ButtonAction ShiftUp,
     ButtonAction ShiftDown);
 
@@ -34,8 +34,8 @@ public sealed class ControllerConnection
     public required ControllerMapping Mapping { get; init; }
     public byte LastPressedMask { get; set; }
     public uint LastRidePressedMask { get; set; }
-    public uint RideDownMask { get; set; }
-    public uint RideUpMask { get; set; }
+    public uint RideMinusMask { get; set; }
+    public uint RidePlusMask { get; set; }
     public uint RideLeftMask { get; set; }
     public uint RideRightMask { get; set; }
 }

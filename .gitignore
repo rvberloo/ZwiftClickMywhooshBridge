@@ -1,0 +1,12 @@
+# Build output
+**/bin/
+**/obj/
+
+# User-specific files
+.vs/
+*.user
+*.suo
+
+# Test results
+TestResults/
+*.trx

@@ -8,7 +8,7 @@ class Program
     private static readonly GattDiscoveryService Gatt = new();
 
     // Zwift Click terminology:
-    // Down = Minus (-) button, Up = Plus (+) button.
+    // Minus = (-) button, Plus = (+) button.
     // The first connected Zwift Click uses Controller1,
     // the second connected Zwift Click uses Controller2.
     private static readonly ControllerMapping Controller1Mapping = new(
@@ -103,8 +103,8 @@ class Program
                         Mapping = mapping,
                         LastPressedMask = 0,
                         LastRidePressedMask = 0,
-                        RideDownMask = 0,
-                        RideUpMask = 0,
+                        RideMinusMask = 0,
+                        RidePlusMask = 0,
                         RideLeftMask = 0,
                         RideRightMask = 0
                     };
@@ -221,12 +221,12 @@ class Program
             if ((pressed & 0x01) != 0)
             {
                 Console.WriteLine($"{connection.Label}: Minus (-)");
-                InputActionExecutor.Execute(connection.Mapping.Down);
+                InputActionExecutor.Execute(connection.Mapping.Minus);
             }
             else if ((pressed & 0x02) != 0)
             {
                 Console.WriteLine($"{connection.Label}: Plus (+)");
-                InputActionExecutor.Execute(connection.Mapping.Up);
+                InputActionExecutor.Execute(connection.Mapping.Plus);
             }
             else if ((pressed & 0x04) != 0)
             {
@@ -261,42 +261,42 @@ class Program
         }
 
         var firstChangedBit = newPressed & (uint)-(int)newPressed;
-        if (connection.RideDownMask == 0)
+        if (connection.RideMinusMask == 0)
         {
-            connection.RideDownMask = firstChangedBit;
-            Console.WriteLine($"{connection.Label}: 0x23 map ingesteld -> Down bit 0x{connection.RideDownMask:X}");
+            connection.RideMinusMask = firstChangedBit;
+            Console.WriteLine($"{connection.Label}: 0x23 map ingesteld -> Minus bit 0x{connection.RideMinusMask:X}");
         }
-        else if (connection.RideUpMask == 0 && firstChangedBit != connection.RideDownMask)
+        else if (connection.RidePlusMask == 0 && firstChangedBit != connection.RideMinusMask)
         {
-            connection.RideUpMask = firstChangedBit;
-            Console.WriteLine($"{connection.Label}: 0x23 map ingesteld -> Up bit 0x{connection.RideUpMask:X}");
+            connection.RidePlusMask = firstChangedBit;
+            Console.WriteLine($"{connection.Label}: 0x23 map ingesteld -> Plus bit 0x{connection.RidePlusMask:X}");
         }
         else if (connection.RideLeftMask == 0 &&
-                 firstChangedBit != connection.RideDownMask &&
-                 firstChangedBit != connection.RideUpMask)
+                 firstChangedBit != connection.RideMinusMask &&
+                 firstChangedBit != connection.RidePlusMask)
         {
             connection.RideLeftMask = firstChangedBit;
             Console.WriteLine($"{connection.Label}: 0x23 map ingesteld -> Left bit 0x{connection.RideLeftMask:X}");
         }
         else if (connection.RideRightMask == 0 &&
-                 firstChangedBit != connection.RideDownMask &&
-                 firstChangedBit != connection.RideUpMask &&
+                 firstChangedBit != connection.RideMinusMask &&
+                 firstChangedBit != connection.RidePlusMask &&
                  firstChangedBit != connection.RideLeftMask)
         {
             connection.RideRightMask = firstChangedBit;
             Console.WriteLine($"{connection.Label}: 0x23 map ingesteld -> Right bit 0x{connection.RideRightMask:X}");
         }
 
-        if (connection.RideDownMask != 0 && (newPressed & connection.RideDownMask) != 0)
+        if (connection.RideMinusMask != 0 && (newPressed & connection.RideMinusMask) != 0)
         {
             Console.WriteLine($"{connection.Label}: Minus (-) (0x23)");
-            InputActionExecutor.Execute(connection.Mapping.Down);
+            InputActionExecutor.Execute(connection.Mapping.Minus);
         }
 
-        if (connection.RideUpMask != 0 && (newPressed & connection.RideUpMask) != 0)
+        if (connection.RidePlusMask != 0 && (newPressed & connection.RidePlusMask) != 0)
         {
             Console.WriteLine($"{connection.Label}: Plus (+) (0x23)");
-            InputActionExecutor.Execute(connection.Mapping.Up);
+            InputActionExecutor.Execute(connection.Mapping.Plus);
         }
 
         if (connection.RideLeftMask != 0 && (newPressed & connection.RideLeftMask) != 0)
@@ -314,7 +314,7 @@ class Program
 
     private static void PrintMappings()
     {
-        Console.WriteLine($"{Controller1Mapping.Label}: Minus(-)={Controller1Mapping.Down}, Plus(+)={Controller1Mapping.Up}, ShiftUp={Controller1Mapping.ShiftUp}, ShiftDown={Controller1Mapping.ShiftDown}");
-        Console.WriteLine($"{Controller2Mapping.Label}: Minus(-)={Controller2Mapping.Down}, Plus(+)={Controller2Mapping.Up}, ShiftUp={Controller2Mapping.ShiftUp}, ShiftDown={Controller2Mapping.ShiftDown}");
+        Console.WriteLine($"{Controller1Mapping.Label}: Minus(-)={Controller1Mapping.Minus}, Plus(+)={Controller1Mapping.Plus}, ShiftUp={Controller1Mapping.ShiftUp}, ShiftDown={Controller1Mapping.ShiftDown}");
+        Console.WriteLine($"{Controller2Mapping.Label}: Minus(-)={Controller2Mapping.Minus}, Plus(+)={Controller2Mapping.Plus}, ShiftUp={Controller2Mapping.ShiftUp}, ShiftDown={Controller2Mapping.ShiftDown}");
     }
 }

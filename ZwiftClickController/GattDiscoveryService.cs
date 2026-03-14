@@ -8,6 +8,7 @@ public sealed class GattDiscoveryService
     private static readonly Guid ServiceUuid = new("00000001-19ca-4651-86e5-fa29dcdd09d1");
     private static readonly Guid NotifyUuid = new("00000002-19ca-4651-86e5-fa29dcdd09d1");
     private static readonly Guid ControlUuid = new("00000003-19ca-4651-86e5-fa29dcdd09d1");
+    private static readonly Guid SyncTxUuid = new("00000004-19ca-4651-86e5-fa29dcdd09d1");
 
     public async Task<BluetoothLEDevice?> TryConnectAsync(BleCandidate candidate)
     {
@@ -52,7 +53,7 @@ public sealed class GattDiscoveryService
         return null;
     }
 
-    public async Task<(GattCharacteristic? control, GattCharacteristic? notify)> FindCharacteristicsAsync(BluetoothLEDevice device)
+    public async Task<(GattCharacteristic? control, GattCharacteristic? notify, GattCharacteristic? syncTx)> FindCharacteristicsAsync(BluetoothLEDevice device)
     {
         var knownServiceResult = await QueryWithRetryAsync(
             mode => device.GetGattServicesForUuidAsync(ServiceUuid, mode),
@@ -73,10 +74,11 @@ public sealed class GattDiscoveryService
             {
                 var knownControl = chars.Characteristics.FirstOrDefault(c => c.Uuid == ControlUuid);
                 var knownNotify = chars.Characteristics.FirstOrDefault(c => c.Uuid == NotifyUuid);
+                var knownSyncTx = chars.Characteristics.FirstOrDefault(c => c.Uuid == SyncTxUuid);
                 if (knownControl != null && knownNotify != null)
                 {
                     Console.WriteLine("Known Zwift UUIDs found.");
-                    return (knownControl, knownNotify);
+                    return (knownControl, knownNotify, knownSyncTx);
                 }
             }
         }
@@ -92,7 +94,7 @@ public sealed class GattDiscoveryService
             var status = allServices?.Status.ToString() ?? "Unknown";
             Console.WriteLine($"Failed to retrieve services: {status}");
             Console.WriteLine("Check that the controller is awake and not already connected by Zwift/MyWhoosh/Companion.");
-            return (null, null);
+            return (null, null, null);
         }
 
         Console.WriteLine("Known UUID not found, trying auto-detect.");
@@ -116,16 +118,21 @@ public sealed class GattDiscoveryService
             var notifyChar = charsResult.Characteristics.FirstOrDefault(c =>
                 c.CharacteristicProperties.HasFlag(GattCharacteristicProperties.Notify));
 
+            var indicateChar = charsResult.Characteristics.FirstOrDefault(c =>
+                c.CharacteristicProperties.HasFlag(GattCharacteristicProperties.Indicate));
+
             if (writeChar != null && notifyChar != null)
             {
                 Console.WriteLine($"Auto-detect service: {service.Uuid}");
                 Console.WriteLine($"  Write char: {writeChar.Uuid}");
                 Console.WriteLine($"  Notify char: {notifyChar.Uuid}");
-                return (writeChar, notifyChar);
+                if (indicateChar != null)
+                    Console.WriteLine($"  Indicate char: {indicateChar.Uuid}");
+                return (writeChar, notifyChar, indicateChar);
             }
         }
 
-        return (null, null);
+        return (null, null, null);
     }
 
     private static async Task<T?> QueryWithRetryAsync<T>(

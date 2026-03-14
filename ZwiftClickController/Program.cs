@@ -1,9 +1,18 @@
-﻿using Windows.Devices.Bluetooth.GenericAttributeProfile;
+﻿using Windows.Devices.Bluetooth;
+using Windows.Devices.Bluetooth.GenericAttributeProfile;
 using Windows.Storage.Streams;
 
 class Program
 {
+    private const byte RideControllerNotificationOpcode = 0x07;
+    private const byte RideVendorMessageOpcode = 0xFF;
+    private const byte RideBatteryNotificationOpcode = 0x2A;
+    private const byte RideOnOpcode = 0x52;
+
     private static readonly List<ControllerConnection> Connections = new();
+    private static readonly object ConnectionsLock = new();
+    private static readonly SemaphoreSlim ConnectGate = new(1, 1);
+    private static readonly Dictionary<string, BleCandidate> LastKnownByLabel = new(StringComparer.Ordinal);
     private static readonly BleDiscoveryService Discovery = new();
     private static readonly GattDiscoveryService Gatt = new();
 
@@ -25,127 +34,44 @@ class Program
         ButtonAction.KeyLeftArrow,
         ButtonAction.KeyRightArrow);
 
+    private static readonly ControllerMapping[] ControllerMappings = { Controller1Mapping, Controller2Mapping };
+
+    // Shared ride-protocol button state — both BLE subscriptions receive the same packets,
+    // so tracking state per-connection causes drift. One shared mask avoids duplicate/missed edges.
+    private static uint SharedRidePressedMask = 0;
+    private static readonly object SharedRideLock = new();
+
     static async Task Main()
     {
         try
         {
             Console.WriteLine("=== Zwift Click C# Controller ===");
-            Console.WriteLine("Scanning for BLE devices...");
             PrintMappings();
 
-            var scanCandidates = await Discovery.ScanBleDevicesAsync(TimeSpan.FromSeconds(8));
-            Console.WriteLine($"Method 1 (scan): {scanCandidates.Count} candidates");
-            foreach (var c in scanCandidates)
-            {
-                if (c.Name.Contains("click", StringComparison.OrdinalIgnoreCase))
-                {
-                    Console.WriteLine($"  - {c.Name} [{BleDiscoveryService.FormatAddress(c.Address)}] ({c.Source})");
-                }
-            }
+            await ReconnectMissingControllersAsync(printDiscoveryLog: true);
 
-            var registryCandidates = Discovery.GetPairedBluetoothDevicesFromRegistry();
-            Console.WriteLine($"Method 2 (registry): {registryCandidates.Count} candidates");
-            foreach (var c in registryCandidates)
-            {
-                Console.WriteLine($"  - {c.Name} [{BleDiscoveryService.FormatAddress(c.Address)}] ({c.Source})");
-            }
-
-            var deviceInfoCandidates = await Discovery.GetWindowsBleDevicesAsync();
-            Console.WriteLine($"Method 3 (windows devices): {deviceInfoCandidates.Count} candidates");
-            foreach (var c in deviceInfoCandidates)
-            {
-                Console.WriteLine($"  - {c.Name} [{BleDiscoveryService.FormatAddress(c.Address)}] ({c.Source})");
-            }
-
-            var merged = Discovery.MergeCandidates(scanCandidates, deviceInfoCandidates, registryCandidates);
-            if (merged.Count == 0)
-            {
-                Console.WriteLine("No BLE candidates found.");
-                Console.WriteLine("Make sure the controller is in pairing mode and close to this PC.");
-                return;
-            }
-
-            var prioritized = merged
-                .Where(c => c.Name.Contains("click", StringComparison.OrdinalIgnoreCase))
-                .OrderBy(c => c.Name, StringComparer.OrdinalIgnoreCase)
-                .ThenBy(c => c.Address)
-                .ToList();
-
-            if (prioritized.Count == 0)
-            {
-                Console.WriteLine("No Zwift Click controllers found.");
-                return;
-            }
-
-            var mappings = new[] { Controller1Mapping, Controller2Mapping };
-            foreach (var candidate in prioritized.Take(mappings.Length))
-            {
-                Console.WriteLine($"Trying to connect: {candidate.Name} [{BleDiscoveryService.FormatAddress(candidate.Address)}]");
-                var device = await Gatt.TryConnectAsync(candidate);
-                if (device == null)
-                {
-                    continue;
-                }
-
-                Console.WriteLine($"Connected to: {device.Name} [{BleDiscoveryService.FormatAddress(candidate.Address)}]");
-
-                var selectedChars = await Gatt.FindCharacteristicsAsync(device);
-                if (selectedChars.control != null && selectedChars.notify != null)
-                {
-                    var mapping = mappings[Connections.Count];
-                    var connection = new ControllerConnection
-                    {
-                        Label = mapping.Label,
-                        Address = candidate.Address,
-                        Device = device,
-                        ControlChar = selectedChars.control,
-                        NotifyChar = selectedChars.notify,
-                        Mapping = mapping,
-                        LastPressedMask = 0,
-                        LastRidePressedMask = 0,
-                        RideMinusMask = 0,
-                        RidePlusMask = 0,
-                        RideLeftMask = 0,
-                        RideRightMask = 0
-                    };
-
-                    var notifyStatus = await connection.NotifyChar.WriteClientCharacteristicConfigurationDescriptorAsync(
-                        GattClientCharacteristicConfigurationDescriptorValue.Notify);
-
-                    if (notifyStatus != GattCommunicationStatus.Success)
-                    {
-                        Console.WriteLine($"Failed to enable notifications for {connection.Label}: {notifyStatus}");
-                        device.Dispose();
-                        continue;
-                    }
-
-                    connection.NotifyChar.ValueChanged += (_, args) => OnButtonChanged(connection, args);
-                    Connections.Add(connection);
-                    await SendRideOn(connection);
-                    Console.WriteLine($"{connection.Label} active on [{BleDiscoveryService.FormatAddress(candidate.Address)}]");
-                    continue;
-                }
-
-                Console.WriteLine("No usable write/notify characteristics found on this device.");
-                device.Dispose();
-            }
-
-            if (Connections.Count == 0)
+            if (GetConnectionCount() == 0)
             {
                 Console.WriteLine("Could not connect to any Zwift Click controller.");
                 return;
             }
 
-            Console.WriteLine($"{Connections.Count} controller(s) active.");
+            Console.WriteLine($"{GetConnectionCount()} controller(s) active.");
 
             _ = Task.Run(async () =>
             {
                 while (true)
                 {
-                    await Task.Delay(30000);
-                    foreach (var connection in Connections)
+                    await Task.Delay(10000);
+                    foreach (var connection in GetConnectionsSnapshot())
                     {
                         await SendRideOn(connection);
+                    }
+
+                    ReconnectSilentConnections(TimeSpan.FromSeconds(60));
+                    if (GetConnectionCount() < ControllerMappings.Length)
+                    {
+                        await ReconnectMissingControllersAsync(printDiscoveryLog: false);
                     }
                 }
             });
@@ -166,17 +92,361 @@ class Program
             var writer = new DataWriter();
             writer.WriteString("RideOn");
             await connection.ControlChar.WriteValueAsync(writer.DetachBuffer(), GattWriteOption.WriteWithoutResponse);
+            connection.KeepAliveFailureCount = 0;
         }
         catch (Exception ex)
         {
-            Console.WriteLine($"SendRideOn error for {connection.Label}: {ex.Message}");
+            connection.KeepAliveFailureCount++;
+            Console.WriteLine($"SendRideOn error for {connection.Label} ({connection.KeepAliveFailureCount}/3): {ex.Message}");
+
+            if (connection.KeepAliveFailureCount >= 3 && IsActiveConnection(connection))
+            {
+                CleanupConnection(connection, "Keepalive write failed");
+                _ = Task.Run(async () => await ReconnectMissingControllersAsync(printDiscoveryLog: false));
+            }
         }
+    }
+
+    private static async Task ReconnectMissingControllersAsync(bool printDiscoveryLog)
+    {
+        await ConnectGate.WaitAsync();
+
+        try
+        {
+            var missingMappings = GetMissingMappings();
+            if (missingMappings.Count == 0)
+            {
+                return;
+            }
+
+            var usedAddresses = new HashSet<ulong>(GetConnectionsSnapshot().Select(c => c.Address));
+            List<BleCandidate>? prioritized = null;
+
+            foreach (var mapping in missingMappings)
+            {
+                var candidate = GetLastKnownCandidate(mapping.Label, usedAddresses);
+
+                if (candidate != null && await TryConnectCandidateAsync(candidate, mapping))
+                {
+                    usedAddresses.Add(candidate.Address);
+                    continue;
+                }
+
+                prioritized ??= await DiscoverCandidatesAsync(printDiscoveryLog);
+                candidate = prioritized.FirstOrDefault(c => !usedAddresses.Contains(c.Address));
+
+                if (candidate == null)
+                {
+                    Console.WriteLine($"No available BLE candidate for {mapping.Label}.");
+                    break;
+                }
+
+                if (await TryConnectCandidateAsync(candidate, mapping))
+                {
+                    usedAddresses.Add(candidate.Address);
+                }
+            }
+
+            if (prioritized is { Count: 0 })
+            {
+                Console.WriteLine("No Zwift Click controllers found for reconnect.");
+            }
+        }
+        finally
+        {
+            ConnectGate.Release();
+        }
+    }
+
+    private static async Task<bool> TryConnectCandidateAsync(BleCandidate candidate, ControllerMapping mapping)
+    {
+        Console.WriteLine($"Trying to connect {mapping.Label}: {candidate.Name} [{BleDiscoveryService.FormatAddress(candidate.Address)}]");
+        var device = await Gatt.TryConnectAsync(candidate);
+        if (device == null)
+        {
+            return false;
+        }
+
+        Console.WriteLine($"Connected to: {device.Name} [{BleDiscoveryService.FormatAddress(candidate.Address)}]");
+
+        var selectedChars = await Gatt.FindCharacteristicsAsync(device);
+        if (selectedChars.control == null || selectedChars.notify == null)
+        {
+            Console.WriteLine("No usable write/notify characteristics found on this device.");
+            device.Dispose();
+            return false;
+        }
+
+        var connection = new ControllerConnection
+        {
+            Label = mapping.Label,
+            Address = candidate.Address,
+            Device = device,
+            ControlChar = selectedChars.control,
+            NotifyChar = selectedChars.notify,
+            Mapping = mapping,
+            LastPressedMask = 0,
+            LastRidePressedMask = 0,
+            RideMinusMask = 0,
+            RidePlusMask = 0,
+            RideLeftMask = 0,
+            RideRightMask = 0,
+            LastNotificationUtc = DateTime.UtcNow,
+            LastButtonNotificationUtc = DateTime.UtcNow,
+            KeepAliveFailureCount = 0
+        };
+
+        var notifyStatus = await connection.NotifyChar.WriteClientCharacteristicConfigurationDescriptorAsync(
+            GattClientCharacteristicConfigurationDescriptorValue.Notify);
+
+        if (notifyStatus != GattCommunicationStatus.Success)
+        {
+            Console.WriteLine($"Failed to enable notifications for {connection.Label}: {notifyStatus}");
+            device.Dispose();
+            return false;
+        }
+
+        // Subscribe to indications on the sync TX characteristic (00000004).
+        // The device uses this channel for handshake responses; subscribing signals readiness.
+        if (selectedChars.syncTx != null)
+        {
+            var indicateStatus = await selectedChars.syncTx.WriteClientCharacteristicConfigurationDescriptorAsync(
+                GattClientCharacteristicConfigurationDescriptorValue.Indicate);
+            if (indicateStatus != GattCommunicationStatus.Success)
+            {
+                Console.WriteLine($"Warning: could not enable indications for {connection.Label}: {indicateStatus}");
+            }
+        }
+
+        connection.NotifyChar.ValueChanged += OnNotifyValueChanged;
+        connection.Device.ConnectionStatusChanged += OnConnectionStatusChanged;
+
+        ControllerConnection? existing;
+        lock (ConnectionsLock)
+        {
+            existing = Connections.FirstOrDefault(c => c.Label == mapping.Label);
+        }
+
+        if (existing != null)
+        {
+            CleanupConnection(existing, "Replacing stale connection");
+        }
+
+        lock (ConnectionsLock)
+        {
+            Connections.Add(connection);
+            LastKnownByLabel[mapping.Label] = candidate;
+        }
+
+        await SendRideOn(connection);
+
+        // Zwift Click V2 (fc82 service): send the vendor init command so the device
+        // skips the full crypto challenge and immediately starts sending button events.
+        // Without this it sends a 0xFF len=103 public-key challenge and waits indefinitely.
+        var v2Init = new DataWriter();
+        v2Init.WriteByte(0xFF);
+        v2Init.WriteByte(0x04);
+        v2Init.WriteByte(0x00);
+        await connection.ControlChar.WriteValueAsync(v2Init.DetachBuffer(), GattWriteOption.WriteWithoutResponse);
+
+        Console.WriteLine($"{connection.Label} active on [{BleDiscoveryService.FormatAddress(candidate.Address)}]");
+        return true;
+    }
+
+    private static async Task<List<BleCandidate>> DiscoverCandidatesAsync(bool printDiscoveryLog)
+    {
+        if (printDiscoveryLog)
+        {
+            Console.WriteLine("Scanning for BLE devices...");
+        }
+
+        var scanCandidates = await Discovery.ScanBleDevicesAsync(TimeSpan.FromSeconds(8));
+        var registryCandidates = Discovery.GetPairedBluetoothDevicesFromRegistry();
+        var deviceInfoCandidates = await Discovery.GetWindowsBleDevicesAsync();
+
+        if (printDiscoveryLog)
+        {
+            Console.WriteLine($"Method 1 (scan): {scanCandidates.Count} candidates");
+            foreach (var c in scanCandidates)
+            {
+                if (c.Name.Contains("click", StringComparison.OrdinalIgnoreCase))
+                {
+                    Console.WriteLine($"  - {c.Name} [{BleDiscoveryService.FormatAddress(c.Address)}] ({c.Source})");
+                }
+            }
+
+            Console.WriteLine($"Method 2 (registry): {registryCandidates.Count} candidates");
+            foreach (var c in registryCandidates)
+            {
+                Console.WriteLine($"  - {c.Name} [{BleDiscoveryService.FormatAddress(c.Address)}] ({c.Source})");
+            }
+
+            Console.WriteLine($"Method 3 (windows devices): {deviceInfoCandidates.Count} candidates");
+            foreach (var c in deviceInfoCandidates)
+            {
+                Console.WriteLine($"  - {c.Name} [{BleDiscoveryService.FormatAddress(c.Address)}] ({c.Source})");
+            }
+        }
+
+        return Discovery.MergeCandidates(scanCandidates, deviceInfoCandidates, registryCandidates)
+            .Where(c => c.Name.Contains("click", StringComparison.OrdinalIgnoreCase))
+            .OrderBy(c => c.Name, StringComparer.OrdinalIgnoreCase)
+            .ThenBy(c => c.Address)
+            .ToList();
+    }
+
+    private static void OnNotifyValueChanged(GattCharacteristic sender, GattValueChangedEventArgs args)
+    {
+        ControllerConnection? connection;
+        lock (ConnectionsLock)
+        {
+            connection = Connections.FirstOrDefault(c => ReferenceEquals(c.NotifyChar, sender));
+        }
+
+        if (connection == null)
+        {
+            return;
+        }
+
+        OnButtonChanged(connection, args);
+    }
+
+    private static void OnConnectionStatusChanged(BluetoothLEDevice sender, object args)
+    {
+        if (sender.ConnectionStatus == BluetoothConnectionStatus.Connected)
+        {
+            return;
+        }
+
+        ControllerConnection? disconnected;
+        lock (ConnectionsLock)
+        {
+            disconnected = Connections.FirstOrDefault(c => ReferenceEquals(c.Device, sender));
+        }
+
+        if (disconnected == null)
+        {
+            return;
+        }
+
+        CleanupConnection(disconnected, "Bluetooth disconnected");
+        _ = Task.Run(async () =>
+        {
+            // Give Windows BLE time to fully tear down the old connection before reconnecting.
+            await Task.Delay(2000);
+            await ReconnectMissingControllersAsync(printDiscoveryLog: false);
+        });
+    }
+
+    private static void CleanupConnection(ControllerConnection connection, string reason)
+    {
+        var removed = false;
+        lock (ConnectionsLock)
+        {
+            removed = Connections.Remove(connection);
+        }
+
+        if (!removed)
+        {
+            return;
+        }
+
+        Console.WriteLine($"{connection.Label} disconnected: {reason}");
+
+        // Clear shared ride state so the first press after reconnect isn't eaten by stale bits.
+        lock (SharedRideLock)
+        {
+            SharedRidePressedMask = 0;
+        }
+
+        connection.NotifyChar.ValueChanged -= OnNotifyValueChanged;
+        connection.Device.ConnectionStatusChanged -= OnConnectionStatusChanged;
+
+        connection.Device.Dispose();
+    }
+
+    private static bool IsActiveConnection(ControllerConnection connection)
+    {
+        lock (ConnectionsLock)
+        {
+            return Connections.Contains(connection);
+        }
+    }
+
+        private static void ReconnectSilentConnections(TimeSpan staleThreshold)
+    {
+        var now = DateTime.UtcNow;
+        foreach (var connection in GetConnectionsSnapshot())
+        {
+            if (connection.Device.ConnectionStatus != BluetoothConnectionStatus.Connected)
+            {
+                CleanupConnection(connection, "Connection status not connected");
+                continue;
+            }
+
+            // Device totally silent — no notifications of any kind.
+            if (now - connection.LastNotificationUtc > staleThreshold)
+            {
+                CleanupConnection(connection, $"No notifications for {(int)staleThreshold.TotalSeconds}s");
+                continue;
+            }
+
+            // Auth-timeout: device is alive (sending battery pings) but button notifications
+            // stopped. Reconnect to re-trigger the RideOn + V2 handshake.
+            if (connection.HasSawButtonNotification
+                && now - connection.LastButtonNotificationUtc > TimeSpan.FromSeconds(30))
+            {
+                CleanupConnection(connection, "Button notifications stopped (auth timeout)");
+            }
+        }
+    }
+
+    private static BleCandidate? GetLastKnownCandidate(string label, HashSet<ulong> usedAddresses)
+    {
+        lock (ConnectionsLock)
+        {
+            if (!LastKnownByLabel.TryGetValue(label, out var candidate))
+            {
+                return null;
+            }
+
+            if (usedAddresses.Contains(candidate.Address))
+            {
+                return null;
+            }
+
+            return candidate;
+        }
+    }
+
+    private static int GetConnectionCount()
+    {
+        lock (ConnectionsLock)
+        {
+            return Connections.Count;
+        }
+    }
+
+    private static List<ControllerConnection> GetConnectionsSnapshot()
+    {
+        lock (ConnectionsLock)
+        {
+            return Connections.ToList();
+        }
+    }
+
+    private static List<ControllerMapping> GetMissingMappings()
+    {
+        var connectedLabels = new HashSet<string>(GetConnectionsSnapshot().Select(c => c.Label), StringComparer.Ordinal);
+        return ControllerMappings.Where(m => !connectedLabels.Contains(m.Label)).ToList();
     }
 
     private static void OnButtonChanged(ControllerConnection connection, GattValueChangedEventArgs args)
     {
         try
         {
+            connection.LastNotificationUtc = DateTime.UtcNow;
+
             var reader = DataReader.FromBuffer(args.CharacteristicValue);
             var data = new byte[reader.UnconsumedBufferLength];
             reader.ReadBytes(data);
@@ -187,13 +457,20 @@ class Program
             }
 
             var messageType = data[0];
-            if (messageType == ClickProtocolParser.EmptyMessageType || messageType == ClickProtocolParser.BatteryLevelType)
+            Console.WriteLine($"[RAW] {connection.Label}: type=0x{messageType:X2} len={data.Length}");
+            if (messageType == ClickProtocolParser.EmptyMessageType
+                || messageType == ClickProtocolParser.BatteryLevelType
+                || messageType == RideVendorMessageOpcode
+                || messageType == RideBatteryNotificationOpcode
+                || messageType == RideOnOpcode)
             {
                 return;
             }
 
-            if (messageType == ClickProtocolParser.RideNotificationMessageType)
+            if (messageType == ClickProtocolParser.RideNotificationMessageType || messageType == RideControllerNotificationOpcode)
             {
+                connection.LastButtonNotificationUtc = DateTime.UtcNow;
+                connection.HasSawButtonNotification = true;
                 HandleRideStyleNotification(connection, data.AsSpan(1));
                 return;
             }
@@ -205,6 +482,7 @@ class Program
             }
 
             var pressed = ClickProtocolParser.ParseClickPressedMask(data.AsSpan(1));
+            connection.LastButtonNotificationUtc = DateTime.UtcNow;
             if (pressed == connection.LastPressedMask)
             {
                 return;
@@ -252,90 +530,85 @@ class Program
             return;
         }
 
-        var newPressed = pressedNow & ~connection.LastRidePressedMask;
-        connection.LastRidePressedMask = pressedNow;
+        uint prevMask, newPressed;
+        lock (SharedRideLock)
+        {
+            prevMask = SharedRidePressedMask;
+            newPressed = pressedNow & ~prevMask;
+            SharedRidePressedMask = pressedNow;
+        }
 
         if (newPressed == 0)
         {
             return;
         }
 
-        if (connection.Label == "Controller2")
+        // Controller1 bitmasks (Zwift Click - left side, Ride protocol)
+        const uint c1MinusBtn = 0x00100;
+        const uint c1LeftBtn  = 0x00002;
+        const uint c1RightBtn = 0x00004;
+
+        // Controller2 bitmasks (Zwift Click - right side, Ride protocol)
+        const uint c2PlusMask = 0x01000 | 0x02000;
+        const uint c2ABtn     = 0x00010;
+        const uint c2BBtn     = 0x00020;
+        const uint c2ZBtn     = 0x00080;
+
+        var handled = false;
+
+        if ((newPressed & c1MinusBtn) != 0)
         {
-            const uint aBtn = 0x10;
-            const uint bBtn = 0x20;
-            const uint zBtn = 0x80;
-
-            if ((newPressed & aBtn) != 0)
-            {
-                Console.WriteLine($"{connection.Label}: A (Ctrl+Left)");
-                InputActionExecutor.Execute(ButtonAction.CtrlLeft);
-            }
-
-            if ((newPressed & bBtn) != 0)
-            {
-                Console.WriteLine($"{connection.Label}: B (Space)");
-                InputActionExecutor.Execute(ButtonAction.SpaceBar);
-            }
-
-            if ((newPressed & zBtn) != 0)
-            {
-                Console.WriteLine($"{connection.Label}: Z (Ctrl+Right)");
-                InputActionExecutor.Execute(ButtonAction.CtrlRight);
-            }
-
-            return;
+            Console.WriteLine("Controller1: Minus (-)");
+            InputActionExecutor.Execute(Controller1Mapping.Minus);
+            handled = true;
         }
 
-        var firstChangedBit = newPressed & (uint)-(int)newPressed;
-        if (connection.RideMinusMask == 0)
+        if ((newPressed & c1LeftBtn) != 0)
         {
-            connection.RideMinusMask = firstChangedBit;
-            Console.WriteLine($"{connection.Label}: 0x23 mapping set -> Minus bit 0x{connection.RideMinusMask:X}");
-        }
-        else if (connection.RidePlusMask == 0 && firstChangedBit != connection.RideMinusMask)
-        {
-            connection.RidePlusMask = firstChangedBit;
-            Console.WriteLine($"{connection.Label}: 0x23 mapping set -> Plus bit 0x{connection.RidePlusMask:X}");
-        }
-        else if (connection.RideLeftMask == 0 &&
-                 firstChangedBit != connection.RideMinusMask &&
-                 firstChangedBit != connection.RidePlusMask)
-        {
-            connection.RideLeftMask = firstChangedBit;
-            Console.WriteLine($"{connection.Label}: 0x23 mapping set -> Left bit 0x{connection.RideLeftMask:X}");
-        }
-        else if (connection.RideRightMask == 0 &&
-                 firstChangedBit != connection.RideMinusMask &&
-                 firstChangedBit != connection.RidePlusMask &&
-                 firstChangedBit != connection.RideLeftMask)
-        {
-            connection.RideRightMask = firstChangedBit;
-            Console.WriteLine($"{connection.Label}: 0x23 mapping set -> Right bit 0x{connection.RideRightMask:X}");
+            Console.WriteLine("Controller1: Left");
+            InputActionExecutor.Execute(Controller1Mapping.ShiftUp);
+            handled = true;
         }
 
-        if (connection.RideMinusMask != 0 && (newPressed & connection.RideMinusMask) != 0)
+        if ((newPressed & c1RightBtn) != 0)
         {
-            Console.WriteLine($"{connection.Label}: Minus (-) (0x23)");
-            InputActionExecutor.Execute(connection.Mapping.Minus);
+            Console.WriteLine("Controller1: Right");
+            InputActionExecutor.Execute(Controller1Mapping.ShiftDown);
+            handled = true;
         }
 
-        if (connection.RidePlusMask != 0 && (newPressed & connection.RidePlusMask) != 0)
+        // Only fire on the first arriving plus-bit; ignore subsequent packets that add the second bit.
+        if ((newPressed & c2PlusMask) != 0 && (prevMask & c2PlusMask) == 0)
         {
-            Console.WriteLine($"{connection.Label}: Plus (+) (0x23)");
-            InputActionExecutor.Execute(connection.Mapping.Plus);
+            Console.WriteLine("Controller2: Plus (+)");
+            InputActionExecutor.Execute(Controller2Mapping.Plus);
+            handled = true;
         }
 
-        if (connection.RideLeftMask != 0 && (newPressed & connection.RideLeftMask) != 0)
+        if ((newPressed & c2ABtn) != 0)
         {
-            Console.WriteLine($"{connection.Label}: Left (0x23)");
-            InputActionExecutor.Execute(connection.Mapping.ShiftUp);
+            Console.WriteLine("Controller2: A");
+            InputActionExecutor.Execute(ButtonAction.CtrlLeft);
+            handled = true;
         }
 
-        if (connection.RideRightMask != 0 && (newPressed & connection.RideRightMask) != 0)
+        if ((newPressed & c2BBtn) != 0)
         {
-            Console.WriteLine($"{connection.Label}: Right (0x23)");
-            InputActionExecutor.Execute(connection.Mapping.ShiftDown);
+            Console.WriteLine("Controller2: B");
+            InputActionExecutor.Execute(ButtonAction.SpaceBar);
+            handled = true;
+        }
+
+        if ((newPressed & c2ZBtn) != 0)
+        {
+            Console.WriteLine("Controller2: Z");
+            InputActionExecutor.Execute(ButtonAction.CtrlRight);
+            handled = true;
+        }
+
+        if (!handled)
+        {
+            Console.WriteLine($"{connection.Label}: unmapped ride bits 0x{newPressed:X}");
         }
     }
 

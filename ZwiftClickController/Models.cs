@@ -41,6 +41,10 @@ public sealed class ControllerConnection
     public uint RidePlusMask { get; set; }
     public uint RideLeftMask { get; set; }
     public uint RideRightMask { get; set; }
+    public DateTime LastNotificationUtc { get; set; }
+    public DateTime LastButtonNotificationUtc { get; set; }
+    public bool HasSawButtonNotification { get; set; }
+    public int KeepAliveFailureCount { get; set; }
 }
 
 public sealed record BleCandidate(ulong Address, string Name, string Source, string? DeviceId = null);

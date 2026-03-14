@@ -38,22 +38,42 @@ public static class ClickProtocolParser
     {
         var index = 0;
         uint buttonMap = uint.MaxValue;
+        var foundField1 = false;
 
         while (index < message.Length)
         {
             var tag = message[index++];
             var fieldNumber = tag >> 3;
             var wireType = tag & 0x07;
-            if (wireType != 0)
+
+            switch (wireType)
             {
-                pressedNow = 0;
-                return false;
+                case 0: // varint
+                    var value = ReadVarint(message, ref index);
+                    if (fieldNumber == 1)
+                    {
+                        buttonMap = unchecked((uint)value);
+                        foundField1 = true;
+                    }
+                    break;
+                case 1: // 64-bit fixed
+                    index += 8;
+                    break;
+                case 2: // length-delimited (strings, bytes, embedded messages, repeated)
+                    var len = (int)ReadVarint(message, ref index);
+                    index += len;
+                    break;
+                case 5: // 32-bit fixed
+                    index += 4;
+                    break;
+                default:
+                    // Unknown wire type — cannot continue parsing safely
+                    pressedNow = foundField1 ? ~buttonMap : 0;
+                    return foundField1;
             }
 
-            var value = ReadVarint(message, ref index);
-            if (fieldNumber == 1)
+            if (foundField1)
             {
-                buttonMap = unchecked((uint)value);
                 break;
             }
         }

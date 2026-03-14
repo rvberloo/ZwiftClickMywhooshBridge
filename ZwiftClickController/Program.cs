@@ -13,15 +13,15 @@ class Program
     // the second connected Zwift Click uses Controller2.
     private static readonly ControllerMapping Controller1Mapping = new(
         "Controller1",
-        ButtonAction.KeyK,
         ButtonAction.KeyI,
+        ButtonAction.KeyK,
         ButtonAction.KeyLeftArrow,
         ButtonAction.KeyRightArrow);
 
     private static readonly ControllerMapping Controller2Mapping = new(
         "Controller2",
-        ButtonAction.KeyK,
         ButtonAction.KeyI,
+        ButtonAction.KeyK,
         ButtonAction.KeyLeftArrow,
         ButtonAction.KeyRightArrow);
 
@@ -260,6 +260,33 @@ class Program
             return;
         }
 
+        if (connection.Label == "Controller2")
+        {
+            const uint aBtn = 0x10;
+            const uint bBtn = 0x20;
+            const uint zBtn = 0x80;
+
+            if ((newPressed & aBtn) != 0)
+            {
+                Console.WriteLine($"{connection.Label}: A (Ctrl+Left)");
+                InputActionExecutor.Execute(ButtonAction.CtrlLeft);
+            }
+
+            if ((newPressed & bBtn) != 0)
+            {
+                Console.WriteLine($"{connection.Label}: B (Space)");
+                InputActionExecutor.Execute(ButtonAction.SpaceBar);
+            }
+
+            if ((newPressed & zBtn) != 0)
+            {
+                Console.WriteLine($"{connection.Label}: Z (Ctrl+Right)");
+                InputActionExecutor.Execute(ButtonAction.CtrlRight);
+            }
+
+            return;
+        }
+
         var firstChangedBit = newPressed & (uint)-(int)newPressed;
         if (connection.RideMinusMask == 0)
         {
@@ -314,7 +341,7 @@ class Program
 
     private static void PrintMappings()
     {
-        Console.WriteLine($"{Controller1Mapping.Label}: Minus(-)={Controller1Mapping.Minus}, Plus(+)={Controller1Mapping.Plus}, ShiftUp={Controller1Mapping.ShiftUp}, ShiftDown={Controller1Mapping.ShiftDown}");
-        Console.WriteLine($"{Controller2Mapping.Label}: Minus(-)={Controller2Mapping.Minus}, Plus(+)={Controller2Mapping.Plus}, ShiftUp={Controller2Mapping.ShiftUp}, ShiftDown={Controller2Mapping.ShiftDown}");
+        Console.WriteLine($"{Controller1Mapping.Label}: Minus(-)={Controller1Mapping.Minus}, Plus(+)={Controller1Mapping.Plus}, Left={Controller1Mapping.ShiftUp}, Right={Controller1Mapping.ShiftDown}");
+        Console.WriteLine($"{Controller2Mapping.Label}: Plus(+)={Controller2Mapping.Plus}, A=CtrlLeft, B=Space, Z=CtrlRight");
     }
 }

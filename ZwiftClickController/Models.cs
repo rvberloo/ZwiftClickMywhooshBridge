@@ -14,7 +14,10 @@ public enum ButtonAction
     SpotifyNextTrack,
     SpotifyPreviousTrack,
     SpotifyVolumeUp,
-    SpotifyVolumeDown
+    SpotifyVolumeDown,
+    CtrlLeft,
+    CtrlRight,
+    SpaceBar
 }
 
 public sealed record ControllerMapping(

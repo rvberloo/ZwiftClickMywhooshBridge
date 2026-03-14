@@ -44,6 +44,15 @@ public static class InputActionExecutor
             case ButtonAction.SpotifyVolumeDown:
                 Sim.Keyboard.KeyPress(VirtualKeyCode.VOLUME_DOWN);
                 return;
+            case ButtonAction.CtrlLeft:
+                Sim.Keyboard.ModifiedKeyStroke(VirtualKeyCode.CONTROL, VirtualKeyCode.LEFT);
+                return;
+            case ButtonAction.CtrlRight:
+                Sim.Keyboard.ModifiedKeyStroke(VirtualKeyCode.CONTROL, VirtualKeyCode.RIGHT);
+                return;
+            case ButtonAction.SpaceBar:
+                Sim.Keyboard.KeyPress(VirtualKeyCode.SPACE);
+                return;
             default:
                 return;
         }

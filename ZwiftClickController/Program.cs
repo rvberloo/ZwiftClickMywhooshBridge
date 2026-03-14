@@ -553,6 +553,7 @@ class Program
         const uint c2ABtn     = 0x00010;
         const uint c2BBtn     = 0x00020;
         const uint c2ZBtn     = 0x00080;
+        const uint c2XBtn     = 0x00040;
 
         var handled = false;
 
@@ -606,6 +607,13 @@ class Program
             handled = true;
         }
 
+        if ((newPressed & c2XBtn) != 0)
+        {
+            Console.WriteLine("Controller2: X");
+            InputActionExecutor.Execute(ButtonAction.KeyI);
+            handled = true;
+        }
+
         if (!handled)
         {
             Console.WriteLine($"{connection.Label}: unmapped ride bits 0x{newPressed:X}");
@@ -615,6 +623,6 @@ class Program
     private static void PrintMappings()
     {
         Console.WriteLine($"{Controller1Mapping.Label}: Minus(-)={Controller1Mapping.Minus}, Plus(+)={Controller1Mapping.Plus}, Left={Controller1Mapping.ShiftUp}, Right={Controller1Mapping.ShiftDown}");
-        Console.WriteLine($"{Controller2Mapping.Label}: Plus(+)={Controller2Mapping.Plus}, A=CtrlLeft, B=Space, Z=CtrlRight");
+        Console.WriteLine($"{Controller2Mapping.Label}: Plus(+)={Controller2Mapping.Plus}, A=CtrlLeft, B=Space, Z=CtrlRight, X=KeyI");
     }
 }
